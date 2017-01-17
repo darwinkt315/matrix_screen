@@ -14,6 +14,12 @@ using namespace std;
 
 //======================================================================================================
 
+/*
+ * Служебный класс.
+ * Пришлось сделать явные специализации для целочисленных
+ * и вещественных типов для корректного попадания в
+ * заданный диапозон генерации
+*/
 template <class T>
 class Rand {
 private:
@@ -58,6 +64,9 @@ template<> float Rand<float>::operator()(float min, float max) {
 
 //======================================================================================================
 
+/*
+ * Точка - элемент траектории
+*/
 template <class T>
 struct Point {
     T x;
@@ -72,6 +81,9 @@ typedef Point<float>    FPoint;
 
 //======================================================================================================
 
+/*
+ * Класс задает диапозон для генерации случайного числа
+*/
 template <class T>
 struct Range {
 private:
@@ -94,6 +106,11 @@ typedef Range<float>    FRange;
 
 //======================================================================================================
 
+/*
+ * Счетчик - используется в конечном автомате
+ * для отслеживания текущего состяния объекта
+ * Считает до заданного лимита по Tick() дальше нужно сбрасывать
+*/
 class Timer {
 protected:
     uint tickLimit;
@@ -121,6 +138,10 @@ public:
 
 //======================================================================================================
 
+/*
+ * Цикличный счетчик - уже нигде не используется,
+ * оставил на всякий случай.
+*/
 class CycleTimer : public Timer {
 protected:
     uint cycleLimit;
@@ -158,6 +179,9 @@ public:
 
 //======================================================================================================
 
+/*
+ * Класс инициализирует цвета и цветовый пары ncurses
+*/
 class Gradient {
 //-----------------------fields-------------------------------
 private:
@@ -177,9 +201,6 @@ public:
     static short green2black[STEPS];
     static short green2white[STEPS];
     static short white2black[STEPS];
-
-   // short begin;
-   // short level;
 
 //-----------------------methods------------------------------
 
@@ -211,49 +232,9 @@ short Gradient::white2black[Gradient::STEPS];
 
 //======================================================================================================
 
-typedef  double (*SequenceFunc)(double);
-
-// equation - y = f(x), where x[0..1], y[0..1]
-// size => result.size()
-// minY => result.min()
-// maxY => result.max()
-vector<int> GetSequence(uint size, int minY, int maxY, SequenceFunc sf) {
-    vector<int> result(size);
-    double step = 1.0/(size-1);
-    double x = 0;
-    int scale = maxY-minY;
-    for(uint i = 0; i<size ; ++i, x+=step)
-        result[i] = round(scale * sf(x)) + minY;
-    return result;
-}
-
-double Sin(double x) { return (sin(x*2*M_PI) + 1)/2; }
-double Linear(double x) { return x; }
-double Cavity(double x) {
-    if(x<0.5) return 1-x*2;
-    else if(x>0.5) return (x-0.5)*2;
-    return 0;
-}
-double Peak(double x) {
-    if(x<0.5) return x*2;
-    else if(x>0.5) return (1-x)*2;
-    return 1;
-}
-double BellShaped(double x) {
-
-    const static double ln=1.0/3.0;
-    const static double x1 = 0.5 - ln/2;
-    const static double x2 = 0.5 + ln/2;
-
-    if(x<x1) return x/x1;
-    else if(x1<=x && x<=x2) return 1;
-    else return (1-x)/x1;
-}
-vector<int> GetGradientSequence(uint size, SequenceFunc sf) {
-    return GetSequence(size, 0, Gradient::MAX_BRIGHT, sf);
-}
-//======================================================================================================
-
+/*
+ * Генератор траекторий
+*/
 typedef vector<UPoint> Track;
 class TrackGen {
 private:
@@ -267,6 +248,8 @@ public:
         step = {1.0/dims.x, 1.0/dims.y};
     }
 
+    //Генерим линейную траекторию с заданным углом наклона
+    //траектория масштабируется согласно размерам консоли (dims)
     Track GetLinear(double fillCfnt = 0.8) {
         assert(0<fillCfnt && fillCfnt<1);
 
@@ -296,6 +279,7 @@ public:
         return result;
     }
 
+    //генерим вертикальную траекторию в заданном столбце консоли
     Track GetVertical(uint pos) {
         assert(pos<dims.x-1);
         Track result(dims.y);
@@ -304,11 +288,13 @@ public:
         return result;
     }
 
+    //генерим круг, задаем центр и радиус
     Track GetCircle(IPoint center, int rds) {
         assert(rds > 0);
         static const double SIN45 = 0.7071;
         vector<IPoint> circle;
 
+        //становимся в точку -PI/4 итерируемся по строкам (ось y), считаем x до угла PI/4
         int y = -round(rds*SIN45);
         int yend = -y;
         int x = 0;
@@ -316,14 +302,16 @@ public:
             x = round(sqrt(rds*rds - y*y));
             circle.push_back({x, y});
         }
+        //зеркально отображаем полученный результат относительно прямой y = x
         for(int i=circle.size()-1; i>=0; --i)
             circle.push_back({circle[i].y, circle[i].x});
+        //зеркально отображаем полученный результат относительно прямой y = -x
         for(int i=circle.size()-1; i>=0; --i)
             circle.push_back({-circle[i].y, -circle[i].x});
 
         Track result;
 
-        uint k=0;
+        uint k=0; //начальная точка траектории должна находиться за пределами экрана
         double cfnt = 0;
         //up
         if(center.y+rds > int(dims.y-1))        cfnt=3.0/8.0;
@@ -338,12 +326,15 @@ public:
         for(uint i=0; i<circle.size(); ++i, k = (k == circle.size()-1) ? 0 : k+1) {
             x = circle[k].x + center.x;
             y = circle[k].y + center.y;
+            //фильтруем точки, которые находятся за пределами экрана
             if(0<=x && x<int(dims.x) && 0<=y && y<int(dims.y))
                 result.push_back({uint(x), uint(y)});
         }
         return result;
     }
 
+    //Рандомная эллиптическая траектория,
+    //границы для центра и радиуса подбирались эмпирически во время тестов
     Track GetArc(double fillCfnt = 0.7) {
         assert(0<fillCfnt && fillCfnt<1);
 
@@ -420,25 +411,32 @@ public:
 
 //======================================================================================================
 
+/*
+ * Символьная цепочка - по сути конечный автомат с примитивным графом :
+ * Ждем инита -> инит -> ждем перемещения -> двигаемся -> дошли до конца, подали сигнал
+*/
 class Chain {
 //-------------------------fields------------------------------
 private:
+    //при каждом ините рандомно выбираются: длинна цепочки, символы,
+    //задержка перед началом движения (что бы все сразу не ломились вниз)
+    //задержка перемещения (разная скорость)
     static const URange chainLengthRange;
     static const CRange charsRange;
     static const URange initDelayRange;
     static const URange moveDelayRange;
-    static const uint   TAIL_SIZE = 10;
+    static const uint   TAIL_SIZE = 10; //сколько символов переход от зеленого к черному
 
-    string          symbols;
-    vector<uint>    colors;
-    int             position;
-    Track           track;
-    bool            finishFlag;
-    bool            movedFlag;
+    string          symbols;    //содержание цепочки
+    vector<uint>    colors;     //распределение цветов по символам
+    int             position;   //текущая позиция на траектории
+    Track           track;      //траектория перемещения по консоли
+    bool            finishFlag; //дошли до конца траектории?
+    bool            movedFlag;  //было перемещение?
 
-    Timer           mainTimer;
-    Timer           initDelay;
-    Timer           moveDelay;
+    Timer           mainTimer;  //босс - всем рулит
+    Timer           initDelay;  //по этому таймеру ждем инита
+    Timer           moveDelay;  //по этому таймеру ждем перемещения по траектории
 public:
 
 //-------------------------methods-----------------------------
@@ -449,6 +447,7 @@ public:
         Init();
     }
 
+    //инит без смены траектории
     void Init() {
         finishFlag = false;
         position = -1;
@@ -468,14 +467,16 @@ public:
         initDelay = initDelayRange.Any();
     }
 
+    //меняем траекторию, запускаем таймеры
     void Init(Track&& _track) {
         track = _track;
         Init();
     }
 
-    void SetTrack(Track&& _track) { track = _track; }
+    //void SetTrack(Track&& _track) { track = _track; }
     const Track& GetTrack() const { return track; }
 
+    //Вся магия тут
     bool Tick() {
         if(finishFlag) return true;
         if(!initDelay.Tick()) return false;
@@ -490,6 +491,7 @@ public:
         return finishFlag;
     }
 
+    //И тут
     void Display() {
 
         if(finishFlag || !movedFlag) return;
@@ -610,6 +612,9 @@ const URange Chain::moveDelayRange = {20,70};
 
 //======================================================================================================
 
+/*
+ * Как говориться встречают по одежке
+*/
 void Greeting() {
     typedef vector<bool> boolVR;
     typedef vector<boolVR> boolMX;
@@ -621,6 +626,9 @@ void Greeting() {
     uint height = 10;
     uint offset = 2;
 
+    //Битовые маски для символов
+    //На эти маски накладываются символы, а на символы накладываются цвета
+    //Да смотрится стремно, но в консоли очень даже ничего
     static const boolVR empty =
                     {0,0,0,0,0,0,0,0,0,0,
                      0,0,0,0,0,0,0,0,0,0,
@@ -766,13 +774,32 @@ void Greeting() {
                      1,1,0,0,0,0,0,0,1,1,};
 
 
+    //Генерим градиентный профиль
+    //первая треть от size используется для уменьшающегося градиента : (MAX_BRIGHT -> 0) <=> (Black -> Green)
+    //вторая треть - градиент постоянный (Green)
+    //последняя треть - градиент возращается в первоначальному значению (Green -> Black)
+    //получаем форму ямы, с плато на дне
+    auto GradientProfile = [](uint size) -> vector<uint> {
+        vector<uint> result;
+        uint front = size/3;
+
+        for(uint i=0; i<front; ++i)
+            result.push_back(Gradient::MAX_BRIGHT*(front-i-1)/(front-1));
+
+        for(uint i=0; i<front; ++i)
+            result.push_back(0);
+
+        for(uint i=0; i<front; ++i)
+            result.push_back(Gradient::MAX_BRIGHT*i/(front-1));
+
+        return result;
+    };
+
     static const URange symbolRange = {'0', '1'};
-    vector<int> bellSeq = GetGradientSequence(60, BellShaped);
+    vector<uint> gradProf = GradientProfile(60);
     const uint delay = 20;
 
-    charMX fl;
-    charMX sl;
-
+    //Заполняем символьную матрицу согласно битовой маске рандомными 0..1
     auto FillCharMX = [width, height, offset](charMX& dst, const boolMX& mask) {
         for(uint k=0; k<mask.size(); ++k) {
             for(uint i=0; i<width; ++i) {
@@ -787,16 +814,20 @@ void Greeting() {
         }
     };
 
-    auto DisplayCharMX = [&bellSeq, delay] (const charMX& mx, const UPoint& offset) {
-        for(uint i=0; i<mx.size()+bellSeq.size()+1; ++i) {
-            for(uint k=max(0,int(bellSeq.size()-1-i)),
-                     m=max(0,int(i-bellSeq.size()-1)),
-                     l=min(int(bellSeq.size()-k),int(mx.size()-m)); l>0; ++k, ++m, --l) {
+    //Вся магия тут!!!
+    //В качестве градеинтной пары выбираем зелено-черный
+    //проводим градиентный профиль через столбцы символьной матрицы,
+    //получаем плавное затенение краев надписи
+    auto DisplayCharMX = [&gradProf, delay] (const charMX& mx, const UPoint& offset) {
+        for(uint i=0; i<mx.size()+gradProf.size()+1; ++i) {
+            for(uint k=max(0,int(gradProf.size()-1-i)),
+                     m=max(0,int(i-gradProf.size()-1)),
+                     l=min(int(gradProf.size()-k),int(mx.size()-m)); l>0; ++k, ++m, --l) {
 
-                attron(COLOR_PAIR(Gradient::green2black[Gradient::MAX_BRIGHT-bellSeq[k]]));
+                attron(COLOR_PAIR(Gradient::green2black[gradProf[k]]));
                 for(uint n=0; n<mx[m].size(); ++n)
                     if(mx[m][n]) mvaddch(n+offset.y, m+offset.x, mx[m][n]);
-                attroff(COLOR_PAIR(Gradient::green2black[Gradient::MAX_BRIGHT-bellSeq[k]]));
+                attroff(COLOR_PAIR(Gradient::green2black[gradProf[k]]));
             }
 
             refresh();
@@ -804,14 +835,17 @@ void Greeting() {
         }
     };
 
-    FillCharMX(fl, {w,e,l,c,o,m,e,empty,t,o});
-    FillCharMX(sl, {m,a,t,r,i,x});
+    charMX firstLine;
+    charMX secondLine;
+
+    FillCharMX(firstLine, {w,e,l,c,o,m,e,empty,t,o});
+    FillCharMX(secondLine, {m,a,t,r,i,x});
 
     UPoint margin1 = {5,3};
     UPoint margin2 = {margin1.x+(width+offset)*2, margin1.y+height+offset};
 
-    DisplayCharMX(fl, margin1);
-    DisplayCharMX(sl, margin2);
+    DisplayCharMX(firstLine, margin1);
+    DisplayCharMX(secondLine, margin2);
 }
 
 //======================================================================================================
